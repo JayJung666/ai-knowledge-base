@@ -4,7 +4,13 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from app.rag_engine import process_and_store_document, query_knowledge_base, reset_vector_database
+from app.rag_engine import (
+    process_and_store_document,
+    query_knowledge_base,
+    reset_vector_database,
+    list_documents,
+    delete_document_by_source,
+)
 from app.tf_classifier import is_valid_query
 
 load_dotenv()
@@ -72,6 +78,41 @@ async def upload_document(file: UploadFile = File(...)):
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(status_code=500, detail=f"Gagal memproses dokumen: {str(e)}")
+
+@app.get("/documents")
+def get_documents():
+    """
+    Endpoint untuk mengambil daftar dokumen yang telah di-ingest ke ChromaDB
+    beserta jumlah chunks dan metadata-nya.
+    """
+    try:
+        docs = list_documents()
+        return {
+            "status": "success",
+            "documents": docs,
+            "total": len(docs)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal mengambil daftar dokumen: {str(e)}")
+
+@app.delete("/documents/{filename}", status_code=status.HTTP_200_OK)
+def delete_document(filename: str):
+    """
+    Endpoint untuk menghapus semua chunks dari dokumen tertentu di ChromaDB
+    berdasarkan nama file.
+    """
+    try:
+        deleted_count = delete_document_by_source(filename)
+        return {
+            "status": "success",
+            "filename": filename,
+            "deleted_chunks": deleted_count,
+            "message": f"Dokumen '{filename}' berhasil dihapus dari Knowledge Base ({deleted_count} chunks)."
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/reset-knowledge-base", status_code=status.HTTP_200_OK)
 def reset_knowledge_base():

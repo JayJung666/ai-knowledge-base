@@ -31,9 +31,9 @@ COLLECTION_NAME = "knowledge_base"
 chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 
 # Inisialisasi Embedding Model via FastEmbed (ONNX-based, ringan & gratis)
-# Model all-MiniLM-L6-v2 (~80MB) akan di-download otomatis saat pertama kali jalan
+# Model intfloat/multilingual-e5-small akan di-download otomatis saat pertama kali jalan
 embeddings = FastEmbedEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_name="intfloat/multilingual-e5-small",
 )
 
 # Inisialisasi LLM dari Groq
@@ -92,6 +92,64 @@ def reset_vector_database() -> bool:
         return True
     except Exception as e:
         raise RuntimeError(f"Gagal mengosongkan database: {str(e)}")
+
+def list_documents() -> list[dict]:
+    """
+    Mengambil daftar file unik yang telah di-ingest ke ChromaDB beserta jumlah chunks-nya.
+    Mengembalikan list of dict: { source, filename, chunks }
+    """
+    try:
+        collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
+        result = collection.get(include=["metadatas"])
+        metadatas = result.get("metadatas", [])
+
+        # Agregasi berdasarkan source
+        doc_map: dict[str, int] = {}
+        for meta in metadatas:
+            if meta:
+                src = meta.get("source", "Unknown")
+                doc_map[src] = doc_map.get(src, 0) + 1
+
+        docs = []
+        for src, chunks in doc_map.items():
+            filename = os.path.basename(src)
+            docs.append({
+                "source": src,
+                "filename": filename,
+                "chunks": chunks
+            })
+        return docs
+    except Exception as e:
+        raise RuntimeError(f"Gagal mengambil daftar dokumen: {str(e)}")
+
+def delete_document_by_source(filename: str) -> int:
+    """
+    Menghapus semua chunks milik dokumen tertentu dari ChromaDB berdasarkan nama file.
+    Mengembalikan jumlah chunks yang dihapus.
+    """
+    try:
+        collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
+        result = collection.get(include=["metadatas"])
+        metadatas = result.get("metadatas", [])
+        ids = result.get("ids", [])
+
+        # Cari ID yang memiliki source mengandung nama file
+        ids_to_delete = []
+        for doc_id, meta in zip(ids, metadatas):
+            if meta:
+                src = meta.get("source", "")
+                if os.path.basename(src) == filename:
+                    ids_to_delete.append(doc_id)
+
+        if not ids_to_delete:
+            raise ValueError(f"Dokumen '{filename}' tidak ditemukan di Knowledge Base.")
+
+        collection.delete(ids=ids_to_delete)
+        return len(ids_to_delete)
+    except ValueError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Gagal menghapus dokumen '{filename}': {str(e)}")
 
 def query_knowledge_base(question: str) -> dict:
     """

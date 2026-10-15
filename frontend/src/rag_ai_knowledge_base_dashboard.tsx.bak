@@ -1,0 +1,885 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Database,
+  Upload,
+  MessageSquare,
+  RefreshCw,
+  Settings,
+  Trash2,
+  FileText,
+  CheckCircle,
+  AlertCircle,
+  Cpu,
+  Layers,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  Send,
+  Sparkles,
+  Terminal,
+  Activity,
+  HardDrive,
+  Moon,
+  Sun,
+  X,
+  File,
+  Info,
+  Server,
+  Zap,
+  Check,
+  Link2
+} from 'lucide-react';
+
+export default function App() {
+  // --- App State ---
+  const [baseUrl, setBaseUrl] = useState('http://localhost:8000');
+  const [mockMode, setMockMode] = useState(false);
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'documents' | 'logs'
+  const [theme, setTheme] = useState('dark');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [apiConnected, setApiConnected] = useState(false);
+
+  // Stats State
+  const [stats, setStats] = useState({
+    totalDocs: 3,
+    totalChunks: 38,
+    vectorStoreStatus: 'Ready',
+    llmModel: 'Groq (qwen3.8-27b)'
+  });
+
+  // Chat State
+  const [messages, setMessages] = useState([
+    {
+      id: '1',
+      sender: 'ai',
+      text: 'Halo! Saya asisten RAG AI Knowledge Base kamu. Silakan ajukan pertanyaan seputar dokumen yang telah diunggah.',
+      timestamp: '10:00 AM',
+      sources: []
+    }
+  ]);
+  const [inputQuery, setInputQuery] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const chatBottomRef = useRef(null);
+
+  // Document Upload State
+  const [uploadedFiles, setUploadedFiles] = useState([
+    { name: 'sample.pdf', size: '1.2 MB', type: 'PDF', status: 'Ingested', chunks: 12, date: '2026-10-14' },
+    { name: 'kebijakan_perusahaan.docx', size: '450 KB', type: 'DOCX', status: 'Ingested', chunks: 18, date: '2026-10-14' },
+    { name: 'data_karyawan.csv', size: '85 KB', type: 'CSV', status: 'Ingested', chunks: 8, date: '2026-10-14' }
+  ]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Logs State
+  const [logs, setLogs] = useState([
+    { id: 1, type: 'info', time: '10:00:15', msg: 'Aplikasi UI berhasil diinisialisasi.' },
+    { id: 2, type: 'success', time: '10:01:02', msg: 'Berhasil terhubung ke FastAPI Backend di http://localhost:8000.' }
+  ]);
+
+  // --- Helpers ---
+  const addLog = (msg, type = 'info') => {
+    const time = new Date().toLocaleTimeString();
+    setLogs((prev) => [{ id: Date.now(), type, time, msg }, ...prev]);
+  };
+
+  // --- Health Check / Connection Ping ---
+  useEffect(() => {
+    const checkHealth = async () => {
+      if (mockMode) {
+        setApiConnected(true);
+        return;
+      }
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`${baseUrl}/docs`, { method: 'GET', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok || res.status === 200) {
+          setApiConnected(true);
+        } else {
+          setApiConnected(false);
+        }
+      } catch (err) {
+        setApiConnected(false);
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 10000);
+    return () => clearInterval(interval);
+  }, [baseUrl, mockMode]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isGenerating]);
+
+  // --- API Handlers ---
+
+  // 1. Send Query
+  const handleSendQuery = async (e) => {
+    e?.preventDefault();
+    if (!inputQuery.trim() || isGenerating) return;
+
+    const userText = inputQuery.trim();
+    setInputQuery('');
+
+    // Push User Message
+    const userMsg = {
+      id: Date.now().toString(),
+      sender: 'user',
+      text: userText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsGenerating(true);
+    addLog(`POST /query - Memproses pertanyaan: "${userText}"`, 'info');
+
+    if (mockMode) {
+      setTimeout(() => {
+        const mockResponse = {
+          answer: `Berdasarkan dokumen yang telah diunggah, berikut adalah jawaban lengkap untuk pertanyaan **"${userText}"**:\n\n1. **Persyaratan Utama**: Peserta wajib mengikuti seluruh rangkaian program dari awal hingga selesai.\n2. **Kualifikasi**: Pendidikan minimal S1 Informatika dengan IPK Minimal 3.50.\n3. **Komitmen**: Memahami bahwa keberhasilan program bergantung pada kedisiplinan dan keaktifan peserta.`,
+          sources: [
+            {
+              source: './temp_uploads/sample.pdf',
+              page: 0,
+              content_preview: 'Pernyataan kesediaan dan komitmen mahasiswa untuk mengikuti seluruh rangkaian program dari awal hingga selesai sesuai jadwal.'
+            },
+            {
+              source: './temp_uploads/kebijakan_perusahaan.docx',
+              page: null,
+              content_preview: 'Kualifikasi Umum: Lulusan S1 Informatika. IPK Minimal 3.50. Menguasai bahasa pemograman Python dan FastAPI.'
+            }
+          ]
+        };
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            sender: 'ai',
+            text: mockResponse.answer,
+            sources: mockResponse.sources,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+        setIsGenerating(false);
+        addLog('POST /query - Berhasil mengembalikan jawaban (Mock Mode).', 'success');
+      }, 1200);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: userText })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: 'Terjadi kesalahan pada server' }));
+        throw new Error(errData.detail || 'Gagal memproses query.');
+      }
+
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: data.answer,
+          sources: data.sources || [],
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      addLog(`POST /query - Respon diterima dari Groq LLM (${data.sources?.length || 0} sumber).`, 'success');
+    } catch (err) {
+      addLog(`POST /query Error: ${err.message}`, 'error');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          sender: 'ai',
+          text: `⚠️ **Gagal mengambil jawaban**: ${err.message}\n\nPastikan container FastAPI berjalan atau aktifkan *Mock API Mode* di pengaturan.`,
+          sources: [],
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 2. Upload Document
+  const handleFileUpload = async (file) => {
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadProgress(20);
+    addLog(`POST /upload - Mengunggah file: ${file.name}`, 'info');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (mockMode) {
+      let p = 20;
+      const interval = setInterval(() => {
+        p += 30;
+        setUploadProgress(p);
+        if (p >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            const newDoc = {
+              name: file.name,
+              size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+              type: file.name.split('.').pop().toUpperCase(),
+              status: 'Ingested',
+              chunks: Math.floor(Math.random() * 15) + 5,
+              date: new Date().toISOString().split('T')[0]
+            };
+            setUploadedFiles((prev) => [newDoc, ...prev]);
+            setStats((prev) => ({ ...prev, totalDocs: prev.totalDocs + 1, totalChunks: prev.totalChunks + newDoc.chunks }));
+            setIsUploading(false);
+            setUploadProgress(0);
+            addLog(`POST /upload - Berhasil meng-ingest file '${file.name}' (${newDoc.chunks} chunks).`, 'success');
+          }, 400);
+        }
+      }, 300);
+      return;
+    }
+
+    try {
+      setUploadProgress(60);
+      const res = await fetch(`${baseUrl}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: 'Gagal mengunggah file' }));
+        throw new Error(errData.detail || 'Terjadi kesalahan saat upload.');
+      }
+
+      const data = await res.json();
+      setUploadProgress(100);
+
+      const newDoc = {
+        name: file.name,
+        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+        type: file.name.split('.').pop().toUpperCase(),
+        status: 'Ingested',
+        chunks: data.total_chunks || 10,
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      setUploadedFiles((prev) => [newDoc, ...prev]);
+      setStats((prev) => ({ ...prev, totalDocs: prev.totalDocs + 1, totalChunks: prev.totalChunks + newDoc.chunks }));
+      addLog(`POST /upload - Sukses meng-ingest '${file.name}'.`, 'success');
+    } catch (err) {
+      addLog(`POST /upload Error: ${err.message}`, 'error');
+      alert(`Gagal mengunggah dokumen: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // 3. Reset Knowledge Base
+  const handleResetKnowledgeBase = async () => {
+    addLog('DELETE /reset-knowledge-base - Memulai proses reset...', 'info');
+
+    if (mockMode) {
+      setTimeout(() => {
+        setUploadedFiles([]);
+        setStats((prev) => ({ ...prev, totalDocs: 0, totalChunks: 0 }));
+        setMessages([
+          {
+            id: Date.now().toString(),
+            sender: 'ai',
+            text: 'Knowledge base telah dikosongkan. Silakan unggah dokumen baru untuk memulai kembali.',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+        setIsResetDialogOpen(false);
+        addLog('DELETE /reset-knowledge-base - Berhasil mengosongkan database (Mock Mode).', 'success');
+      }, 600);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/reset-knowledge-base`, {
+        method: 'DELETE'
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: 'Gagal mereset database' }));
+        throw new Error(errData.detail || 'Terjadi kesalahan server saat reset.');
+      }
+
+      setUploadedFiles([]);
+      setStats((prev) => ({ ...prev, totalDocs: 0, totalChunks: 0 }));
+      setMessages([
+        {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: 'Knowledge base berhasil dikosongkan total.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      addLog('DELETE /reset-knowledge-base - Sukses mengosongkan database.', 'success');
+    } catch (err) {
+      addLog(`DELETE /reset-knowledge-base Error: ${err.message}`, 'error');
+      alert(`Gagal mengosongkan database: ${err.message}`);
+    } finally {
+      setIsResetDialogOpen(false);
+    }
+  };
+
+  return (
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+      
+      {/* --- HEADER NAVBAR --- */}
+      <header className={`sticky top-0 z-30 border-b backdrop-blur-md px-4 lg:px-8 py-3 flex items-center justify-between ${
+        theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200 shadow-sm'
+      }`}>
+        <div className="flex items-center space-x-3">
+          <div className="bg-gradient-to-tr from-indigo-600 to-violet-500 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-500/20">
+            <Database className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg font-bold tracking-tight">RAG Knowledge Base</h1>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                FastAPI + Groq
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 hidden sm:block">Engineered for Fast AI Context Retrieval & Vector Search</p>
+          </div>
+        </div>
+
+        {/* Status Indicators & Controls */}
+        <div className="flex items-center space-x-3">
+          {/* Connection Status Pill */}
+          <div className={`flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full border transition-all ${
+            apiConnected
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+            <span className="font-medium hidden md:inline">
+              {mockMode ? 'Mock Engine Active' : apiConnected ? 'Backend Connected' : 'Backend Offline'}
+            </span>
+          </div>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className={`p-2 rounded-xl border transition-colors ${
+              theme === 'dark' ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
+            }`}
+            title="Ubah Tema"
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          {/* Settings Toggle */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className={`p-2 rounded-xl border transition-colors ${
+              theme === 'dark' ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700'
+            }`}
+            title="Pengaturan API"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* --- STATS OVERVIEW CARDS --- */}
+      <section className="px-4 lg:px-8 py-5 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-7xl mx-auto w-full">
+        <div className={`p-4 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
+            <span>Total Dokumen</span>
+            <FileText className="w-4 h-4 text-indigo-400" />
+          </div>
+          <div className="text-2xl font-bold">{stats.totalDocs}</div>
+          <span className="text-[11px] text-slate-400">PDF, DOCX, CSV, TXT</span>
+        </div>
+
+        <div className={`p-4 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
+            <span>Total Chunks Vektor</span>
+            <Layers className="w-4 h-4 text-violet-400" />
+          </div>
+          <div className="text-2xl font-bold">{stats.totalChunks}</div>
+          <span className="text-[11px] text-slate-400">chunk_size=800, overlap=100</span>
+        </div>
+
+        <div className={`p-4 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
+            <span>Vector Store</span>
+            <HardDrive className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-lg font-bold text-emerald-400 flex items-center space-x-1.5">
+            <CheckCircle className="w-4 h-4" />
+            <span>ChromaDB</span>
+          </div>
+          <span className="text-[11px] text-slate-400">all-MiniLM-L6-v2 Embeddings</span>
+        </div>
+
+        <div className={`p-4 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
+            <span>LLM Provider</span>
+            <Cpu className="w-4 h-4 text-sky-400" />
+          </div>
+          <div className="text-sm font-bold text-sky-400 truncate">Groq qwen3.8-27b</div>
+          <span className="text-[11px] text-slate-400">Ultra-fast Inference</span>
+        </div>
+      </section>
+
+      {/* --- MAIN TAB NAVIGATION --- */}
+      <div className="px-4 lg:px-8 max-w-7xl mx-auto w-full mb-4">
+        <div className={`flex space-x-1 p-1 rounded-xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-200/60 border-slate-300'}`}>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'chat'
+                ? theme === 'dark' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>AI Chat & Search</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('documents')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'documents'
+                ? theme === 'dark' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Upload className="w-4 h-4" />
+            <span>Kelola Dokumen ({uploadedFiles.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'logs'
+                ? theme === 'dark' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-indigo-600 shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Logs & System</span>
+          </button>
+        </div>
+      </div>
+
+      {/* --- TAB CONTENT AREA --- */}
+      <main className="flex-1 px-4 lg:px-8 pb-8 max-w-7xl mx-auto w-full flex flex-col min-h-0">
+
+        {/* TAB 1: CHAT & QUERY INTERFACE */}
+        {activeTab === 'chat' && (
+          <div className={`flex-1 flex flex-col rounded-2xl border overflow-hidden shadow-xl ${
+            theme === 'dark' ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            {/* Chat Conversation Scroll Area */}
+            <div className="flex-1 p-4 lg:p-6 overflow-y-auto space-y-5 min-h-[420px] max-h-[550px]">
+              {messages.map((msg) => (
+                <ChatMessageCard key={msg.id} message={msg} theme={theme} />
+              ))}
+
+              {isGenerating && (
+                <div className="flex items-start space-x-3">
+                  <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 animate-pulse">
+                    <Sparkles className="w-5 h-5 animate-spin" />
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-xs flex items-center space-x-3 ${
+                    theme === 'dark' ? 'bg-slate-800/50 border-slate-700/80 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
+                  }`}>
+                    <span className="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+                    <span>Mencari vektor di ChromaDB & Menulis jawaban via Groq LLM...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Chat Input Bar */}
+            <div className={`p-3 lg:p-4 border-t ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <form onSubmit={handleSendQuery} className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={inputQuery}
+                  onChange={(e) => setInputQuery(e.target.value)}
+                  placeholder="Ketik pertanyaan seputar isi dokumen kamu..."
+                  disabled={isGenerating}
+                  className={`flex-1 px-4 py-3 text-sm rounded-xl border outline-none transition-all ${
+                    theme === 'dark'
+                      ? 'bg-slate-950 border-slate-700 text-slate-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      : 'bg-white border-slate-300 text-slate-800 focus:border-indigo-500'
+                  }`}
+                />
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim() || isGenerating}
+                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-medium text-sm hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 shadow-lg shadow-indigo-500/25 transition-all"
+                >
+                  <span>Kirim</span>
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DOCUMENT MANAGEMENT */}
+        {activeTab === 'documents' && (
+          <div className="space-y-6">
+            {/* Drag and Drop Zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  handleFileUpload(e.dataTransfer.files[0]);
+                }
+              }}
+              className={`p-8 rounded-2xl border-2 border-dashed transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+                isDragging
+                  ? 'border-indigo-500 bg-indigo-500/10 scale-[0.99]'
+                  : theme === 'dark'
+                  ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                  : 'border-slate-300 bg-white hover:border-slate-400'
+              }`}
+            >
+              <div className="p-3 rounded-2xl bg-indigo-500/10 text-indigo-400 mb-3 border border-indigo-500/20">
+                <Upload className="w-8 h-8" />
+              </div>
+              <h3 className="text-base font-semibold mb-1">Unggah Dokumen Baru</h3>
+              <p className="text-xs text-slate-400 mb-4 max-w-md">
+                Tarik dan lepaskan berkas di sini, atau klik tombol di bawah. Mendukung format **.PDF, .DOCX, .CSV, dan .TXT**.
+              </p>
+
+              <label className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold cursor-pointer hover:bg-indigo-500 transition-colors shadow-md shadow-indigo-500/20">
+                <span>Pilih Berkas</span>
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.doc,.csv,.txt"
+                  className="hidden"
+                  onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+                />
+              </label>
+
+              {/* Progress bar */}
+              {isUploading && (
+                <div className="w-full max-w-xs mt-4">
+                  <div className="flex justify-between text-[11px] text-slate-400 mb-1">
+                    <span>Meng-ingest & Menyimpan Vektor...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Document Table */}
+            <div className={`rounded-2xl border overflow-hidden ${theme === 'dark' ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="p-4 border-b border-slate-800/50 flex items-center justify-between">
+                <h2 className="text-sm font-bold flex items-center space-x-2">
+                  <FileText className="w-4 h-4 text-indigo-400" />
+                  <span>Daftar Dokumen dalam Knowledge Base</span>
+                </h2>
+                <span className="text-xs text-slate-400">{uploadedFiles.length} File Terdaftar</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className={`border-b uppercase font-semibold text-[10px] tracking-wider ${
+                    theme === 'dark' ? 'bg-slate-950/50 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+                  }`}>
+                    <tr>
+                      <th className="p-3.5">Nama Dokumen</th>
+                      <th className="p-3.5">Tipe</th>
+                      <th className="p-3.5">Ukuran</th>
+                      <th className="p-3.5">Jumlah Chunks</th>
+                      <th className="p-3.5">Status Ingest</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {uploadedFiles.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="p-8 text-center text-slate-500">
+                          Belum ada dokumen di dalam database.
+                        </td>
+                      </tr>
+                    ) : (
+                      uploadedFiles.map((doc, i) => (
+                        <tr key={i} className={theme === 'dark' ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}>
+                          <td className="p-3.5 font-medium flex items-center space-x-2">
+                            <File className="w-4 h-4 text-indigo-400 shrink-0" />
+                            <span className="truncate max-w-xs">{doc.name}</span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono">
+                              {doc.type}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-slate-400">{doc.size}</td>
+                          <td className="p-3.5 font-mono text-indigo-400">{doc.chunks} chunks</td>
+                          <td className="p-3.5">
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <Check className="w-3 h-3" />
+                              <span>{doc.status}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Dangerous Zone */}
+            <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-red-500/5 border-red-500/20' : 'bg-red-50 border-red-200'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-red-400 flex items-center space-x-2">
+                    <Trash2 className="w-4 h-4" />
+                    <span>Kosongkan Knowledge Base</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Menghapus seluruh koleksi vektor dan file dari ChromaDB secara permanen.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsResetDialogOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-500 transition-colors shadow-md shadow-red-500/20"
+                >
+                  Reset Database
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: SYSTEM LOGS */}
+        {activeTab === 'logs' && (
+          <div className={`p-4 rounded-2xl border font-mono text-xs flex flex-col h-[500px] ${
+            theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-900 border-slate-800 text-slate-200'
+          }`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div className="flex items-center space-x-2">
+                <Terminal className="w-4 h-4 text-indigo-400" />
+                <span className="font-bold text-slate-200">System & API Event Log</span>
+              </div>
+              <button
+                onClick={() => setLogs([])}
+                className="text-[11px] text-slate-500 hover:text-slate-300"
+              >
+                Clear Logs
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+              {logs.map((log) => (
+                <div key={log.id} className="flex items-start space-x-2 leading-relaxed">
+                  <span className="text-slate-500 select-none">[{log.time}]</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
+                    log.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' :
+                    log.type === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-sky-500/20 text-sky-400'
+                  }`}>
+                    {log.type}
+                  </span>
+                  <span className="flex-1">{log.msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* --- RESET CONFIRMATION MODAL --- */}
+      {isResetDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+          <div className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center space-x-3 text-red-400 mb-3">
+              <div className="p-3 rounded-full bg-red-500/10 border border-red-500/20">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold">Konfirmasi Reset Knowledge Base</h3>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed mb-6">
+              Apakah Anda yakin ingin mengosongkan seluruh database? Tindakan ini akan memanggil <code className="text-red-400 bg-red-500/10 px-1 py-0.5 rounded">DELETE /reset-knowledge-base</code> dan menghapus semua vektor di ChromaDB.
+            </p>
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                onClick={() => setIsResetDialogOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 hover:bg-slate-800 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleResetKnowledgeBase}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-red-600 text-white hover:bg-red-500 transition-colors shadow-lg shadow-red-500/20"
+              >
+                Ya, Reset Sekarang
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- SETTINGS DRAWER / MODAL --- */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className={`max-w-md w-full p-6 rounded-2xl border shadow-2xl relative ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <button
+              onClick={() => setIsSettingsOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <h3 className="text-base font-bold mb-4 flex items-center space-x-2">
+              <Settings className="w-5 h-5 text-indigo-400" />
+              <span>Pengaturan Koneksi Backend</span>
+            </h3>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">FastAPI Base URL</label>
+                <div className="flex items-center space-x-2">
+                  <div className="p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-400">
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    className="flex-1 p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 focus:border-indigo-500 outline-none"
+                    placeholder="http://localhost:8000"
+                  />
+                </div>
+              </div>
+
+              {/* Mock Mode Toggle */}
+              <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/50 flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-slate-200">Mock API Mode</div>
+                  <div className="text-[11px] text-slate-400">Simulasi respon lokal saat FastAPI offline</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={mockMode}
+                  onChange={(e) => {
+                    setMockMode(e.target.checked);
+                    addLog(`Mock API Mode diubah menjadi: ${e.target.checked}`, 'info');
+                  }}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsSettingsOpen(false)}
+              className="w-full mt-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs hover:bg-indigo-500 transition-colors"
+            >
+              Simpan Pengaturan
+            </button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// --- SUB-COMPONENT: CHAT MESSAGE CARD ---
+function ChatMessageCard({ message, theme }) {
+  const isUser = message.sender === 'user';
+
+  return (
+    <div className={`flex items-start space-x-3 ${isUser ? 'flex-row-reverse space-x-reverse' : ''}`}>
+      {/* Avatar */}
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white shadow-md ${
+        isUser ? 'bg-indigo-600' : 'bg-gradient-to-tr from-violet-600 to-indigo-600'
+      }`}>
+        {isUser ? <MessageSquare className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+      </div>
+
+      {/* Content Bubble */}
+      <div className={`max-w-[85%] rounded-2xl p-4 border text-xs leading-relaxed space-y-3 ${
+        isUser
+          ? 'bg-indigo-600 text-white border-indigo-500'
+          : theme === 'dark'
+          ? 'bg-slate-800/60 border-slate-700/80 text-slate-200'
+          : 'bg-slate-100 border-slate-200 text-slate-800'
+      }`}>
+        {/* Answer Text */}
+        <div className="whitespace-pre-wrap font-sans">{message.text}</div>
+
+        {/* Sources Accordion (If available) */}
+        {!isUser && message.sources && message.sources.length > 0 && (
+          <div className="pt-2 border-t border-slate-700/50">
+            <div className="text-[11px] font-bold text-indigo-400 mb-2 flex items-center space-x-1.5">
+              <FileText className="w-3.5 h-3.5" />
+              <span>Dokumen Sumber Rujukan ({message.sources.length}):</span>
+            </div>
+
+            <div className="space-y-2">
+              {message.sources.map((src, idx) => (
+                <SourceAccordion key={idx} source={src} index={idx + 1} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-[10px] opacity-60 text-right">{message.timestamp}</div>
+      </div>
+    </div>
+  );
+}
+
+// --- SUB-COMPONENT: SOURCE ACCORDION ---
+function SourceAccordion({ source, index }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-slate-700/60 bg-slate-900/60 overflow-hidden text-[11px]">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2 flex items-center justify-between text-slate-300 hover:bg-slate-800/50 transition-colors text-left"
+      >
+        <span className="font-semibold truncate max-w-[240px]">
+          #{index}. {source.source}
+          {source.page !== null && source.page !== undefined && ` (Hal: ${source.page})`}
+        </span>
+        {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+      </button>
+
+      {isOpen && (
+        <div className="p-3 border-t border-slate-800 text-slate-400 font-mono text-[10px] bg-slate-950/80 leading-relaxed">
+          {source.content_preview}
+        </div>
+      )}
+    </div>
+  );
+}
