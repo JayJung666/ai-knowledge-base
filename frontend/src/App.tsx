@@ -26,7 +26,7 @@ function formatBytes(b: number) {
 }
 
 export default function App() {
-  const [baseUrl, setBaseUrl] = useState(import.meta.env.VITE_API_URL || 'http://localhost:8000');
+  const [baseUrl, setBaseUrl] = useState(() => (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, ''));
   const [mockMode, setMockMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat'|'documents'|'logs'>('chat');
   const [theme, setTheme] = useState<'dark'|'light'>('dark');
