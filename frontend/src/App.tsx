@@ -240,7 +240,7 @@ export default function App() {
         <div className={`p-4 rounded-2xl border transition-all ${card}`}>
           <div className={`flex items-center justify-between text-xs mb-2 ${mut}`}><span>Vector Store</span><HardDrive className="w-4 h-4 text-emerald-400"/></div>
           <div className="text-lg font-bold text-emerald-400 flex items-center space-x-1.5"><CheckCircle className="w-4 h-4"/><span>ChromaDB</span></div>
-          <span className={`text-[11px] ${mut}`}>multilingual-e5-small (FastEmbed)</span>
+          <span className={`text-[11px] ${mut}`}>paraphrase-multilingual (FastEmbed)</span>
         </div>
         <div className={`p-4 rounded-2xl border transition-all ${card}`}>
           <div className={`flex items-center justify-between text-xs mb-2 ${mut}`}><span>LLM Provider</span><Cpu className="w-4 h-4 text-sky-400"/></div>

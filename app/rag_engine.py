@@ -36,9 +36,9 @@ else:
     chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 # Inisialisasi Embedding Model via FastEmbed (ONNX-based, ringan & gratis)
-# Model intfloat/multilingual-e5-small akan di-download otomatis saat pertama kali jalan
+# Model paraphrase-multilingual-MiniLM-L12-v2 (~220MB, multilingual 50+ bahasa)
 embeddings = FastEmbedEmbeddings(
-    model_name="intfloat/multilingual-e5-small",
+    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
 )
 
 # Inisialisasi LLM dari Groq
