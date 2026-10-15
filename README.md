@@ -4,6 +4,14 @@ A production-ready Retrieval-Augmented Generation (RAG) Knowledge Base system bu
 
 This application allows users to upload custom documents in various formats, automatically chunk and embed their content into a vector database, and query the knowledge base using LLMs with full source attribution and transparency.
 
+## 🌐 Live Deployments
+
+| Component | Platform | URL / Link | Status |
+|---|---|---|:---:|
+| **Frontend Dashboard** | **Vercel** | [https://vercel.com/jay-jung666/ai-knowledge-base](https://vercel.com/jay-jung666/ai-knowledge-base) | 🟢 Live |
+| **Backend API** | **Render** | [https://ai-knowledge-base-naq1.onrender.com/](https://ai-knowledge-base-naq1.onrender.com/) | 🟢 Live |
+| **Swagger API Docs** | **Render** | [https://ai-knowledge-base-naq1.onrender.com/docs](https://ai-knowledge-base-naq1.onrender.com/docs) | 🟢 Live |
+
 ## ✨ Features
 
 * **Multi-Format Document Ingestion**: Supports `.pdf`, `.docx`, `.csv`, and `.txt` files.
@@ -264,7 +272,29 @@ docker-compose up -d api
 
 ---
 
-## 🖥️ Backend Deployment (Oracle Cloud Always Free)
+## 🚀 Cloud Deployment
+
+### 1. Frontend (Vercel)
+* **Project Dashboard:** [https://vercel.com/jay-jung666/ai-knowledge-base](https://vercel.com/jay-jung666/ai-knowledge-base)
+* **Framework:** Vite + React
+* **Root Directory:** `frontend`
+* **Environment Variable:**
+  ```env
+  VITE_API_URL=https://ai-knowledge-base-naq1.onrender.com
+  ```
+
+### 2. Backend (Render)
+* **Live Service:** [https://ai-knowledge-base-naq1.onrender.com/](https://ai-knowledge-base-naq1.onrender.com/)
+* **Interactive Docs:** [https://ai-knowledge-base-naq1.onrender.com/docs](https://ai-knowledge-base-naq1.onrender.com/docs)
+* **Runtime:** Docker (Multi-stage build)
+* **Vector Store:** ChromaDB (Persistent in-process)
+* **Environment Variables:**
+  * `GROQ_API_KEY`: API Key Groq
+  * `CORS_ORIGINS`: `*`
+
+---
+
+## 🖥️ Alternative: Backend Deployment (Oracle Cloud Always Free)
 
 Untuk deployment **gratis selamanya**, gunakan Oracle Cloud Always Free:
 
