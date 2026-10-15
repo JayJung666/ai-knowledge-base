@@ -23,12 +23,17 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Koneksi ke ChromaDB sebagai service terpisah via HTTP client
-CHROMA_HOST = os.getenv("CHROMA_HOST", "chromadb")
+# Koneksi ke ChromaDB:
+# Jika CHROMA_HOST diisi (misal Docker Compose lokal), gunakan HttpClient.
+# Jika tidak diisi (misal Render, Hugging Face, Cloud), gunakan PersistentClient in-process.
+CHROMA_HOST = os.getenv("CHROMA_HOST", None)
 CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
 COLLECTION_NAME = "knowledge_base"
 
-chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+if CHROMA_HOST and CHROMA_HOST.lower() not in ("none", "false", "", "local"):
+    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+else:
+    chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 # Inisialisasi Embedding Model via FastEmbed (ONNX-based, ringan & gratis)
 # Model intfloat/multilingual-e5-small akan di-download otomatis saat pertama kali jalan

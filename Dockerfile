@@ -31,5 +31,5 @@ COPY app/ ./app/
 # Expose port FastAPI
 EXPOSE 8000
 
-# Jalankan FastAPI via Uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Jalankan FastAPI via Uvicorn (menggunakan $PORT dari cloud/Render jika ada, default 8000)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
