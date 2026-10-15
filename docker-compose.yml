@@ -1,10 +1,37 @@
 services:
-  web:
-    build: .
+  # ─── ChromaDB Vector Store ────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai-kb-chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
+  # ─── RAG API (FastAPI) ────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: runtime
+    container_name: ai-kb-api
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-      - ./chroma_db:/app/chroma_db
+      - ./app:/app/app
+      - ./temp_uploads:/app/temp_uploads
     env_file:
       - .env
+    environment:
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+    depends_on:
+      - chromadb
+    restart: on-failure
+
+volumes:
+  chroma_data:
+    driver: local

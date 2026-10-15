@@ -9,9 +9,10 @@ from langchain_community.document_loaders import (
     CSVLoader
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
+import chromadb
 
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
@@ -22,9 +23,18 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Inisialisasi Vector Store & Embedding Model
-PERSIST_DIRECTORY = "./chroma_db"
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Koneksi ke ChromaDB sebagai service terpisah via HTTP client
+CHROMA_HOST = os.getenv("CHROMA_HOST", "chromadb")
+CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
+COLLECTION_NAME = "knowledge_base"
+
+chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+
+# Inisialisasi Embedding Model via FastEmbed (ONNX-based, ringan & gratis)
+# Model all-MiniLM-L6-v2 (~80MB) akan di-download otomatis saat pertama kali jalan
+embeddings = FastEmbedEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+)
 
 # Inisialisasi LLM dari Groq
 llm = ChatGroq(
@@ -33,10 +43,18 @@ llm = ChatGroq(
     temperature=0.2
 )
 
-def process_and_store_document(file_path: str):
+def _get_vectorstore() -> Chroma:
+    """Membuat instance Chroma yang terhubung ke ChromaDB HTTP service."""
+    return Chroma(
+        client=chroma_client,
+        collection_name=COLLECTION_NAME,
+        embedding_function=embeddings,
+    )
+
+def process_and_store_document(file_path: str) -> int:
     """
     Membaca file PDF/TXT/DOCX/CSV, memotongnya menjadi chunks,
-    lalu menyimpan vektornya ke ChromaDB.
+    lalu menyimpan vektornya ke ChromaDB service.
     """
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -57,60 +75,30 @@ def process_and_store_document(file_path: str):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
 
-    # Menyimpan ke ChromaDB lokal
-    vectorstore = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        persist_directory=PERSIST_DIRECTORY
-    )
+    # Menyimpan ke ChromaDB via HTTP
+    vectorstore = _get_vectorstore()
+    vectorstore.add_documents(docs)
+
     return len(docs)
 
-def remove_readonly(func, path, exc_info):
-    """Mengubah hak akses file read-only agar bisa dihapus oleh sistem."""
-    os.chmod(path, stat.S_IWRITE)
-    func(path)
-
-def reset_vector_database():
+def reset_vector_database() -> bool:
     """
-    Menghapus seluruh isi koleksi data di ChromaDB tanpa menghapus folder induknya.
+    Menghapus seluruh koleksi di ChromaDB melalui HTTP client.
     """
     try:
-        # 1. Inisialisasi instance Chroma
-        vectorstore = Chroma(
-            persist_directory=PERSIST_DIRECTORY,
-            embedding_function=embeddings
-        )
-        
-        # 2. Hapus seluruh data vektor lewat Chroma API
-        try:
-            vectorstore.reset_collection()
-        except AttributeError:
-            try:
-                vectorstore.delete_collection()
-            except Exception:
-                pass
-
-        # 3. Hapus isi berkas di dalam folder chroma_db (bukan hapus folder induknya)
-        if os.path.exists(PERSIST_DIRECTORY):
-            for item in os.listdir(PERSIST_DIRECTORY):
-                item_path = os.path.join(PERSIST_DIRECTORY, item)
-                try:
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        os.unlink(item_path)
-                    elif os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                except Exception:
-                    pass  # Abaikan jika ada berkas yang sedang terunci sementara oleh SQLite
-                    
+        chroma_client.delete_collection(COLLECTION_NAME)
+        # Buat ulang koleksi kosong agar siap digunakan kembali
+        chroma_client.get_or_create_collection(COLLECTION_NAME)
         return True
     except Exception as e:
         raise RuntimeError(f"Gagal mengosongkan database: {str(e)}")
 
-def query_knowledge_base(question: str):
-    vectorstore = Chroma(
-        persist_directory=PERSIST_DIRECTORY,
-        embedding_function=embeddings
-    )
+def query_knowledge_base(question: str) -> dict:
+    """
+    Mengambil context relevan dari ChromaDB dan mengirimkan ke Groq LLM
+    untuk menghasilkan jawaban beserta sumber dokumen.
+    """
+    vectorstore = _get_vectorstore()
     # Mengambil 3 chunk teratas paling relevan
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
@@ -128,15 +116,15 @@ def query_knowledge_base(question: str):
     rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
     response = rag_chain.invoke({"input": question})
-    
+
     # Extract source documents / metadata
     sources = []
     if "context" in response:
         for doc in response["context"]:
             sources.append({
                 "source": doc.metadata.get("source", "Unknown"),
-                "page": doc.metadata.get("page", None), # Hanya ada di PDF
-                "content_preview": doc.page_content[:200] + "..." # Cuplikan isi chunk
+                "page": doc.metadata.get("page", None),  # Hanya ada di PDF
+                "content_preview": doc.page_content[:200] + "..."  # Cuplikan isi chunk
             })
 
     return {

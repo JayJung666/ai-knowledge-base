@@ -1,10 +1,17 @@
+frontend/
 venv/
 **/venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
 .git/
 .env
+README.md
+.gitignore
 chroma_db/
 temp_uploads/
 .cache/
 samples/
+*.md
+*.log

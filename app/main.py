@@ -1,14 +1,31 @@
 import shutil
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from app.rag_engine import process_and_store_document, query_knowledge_base, reset_vector_database
 from app.tf_classifier import is_valid_query
+
+load_dotenv()
 
 app = FastAPI(
     title="AI Knowledge Base API",
     description="RAG-based Enterprise Knowledge Base System with FastAPI, LangChain, and Groq LLM",
     version="1.0.0"
+)
+
+# CORS: baca dari env var, fallback ke wildcard untuk dev lokal
+# Contoh: CORS_ORIGINS=https://your-app.vercel.app,https://yourdomain.com
+_cors_env = os.getenv("CORS_ORIGINS", "*")
+allowed_origins: list[str] = [o.strip() for o in _cors_env.split(",")] if _cors_env != "*" else ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Folder temporary untuk upload file

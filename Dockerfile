@@ -1,25 +1,35 @@
-# Gunakan base image Python 3.12 yang ringan
-FROM python:3.12-slim
+# =============================================================================
+# Stage 1 — Builder
+# Install dependency Python di environment terpisah.
+# =============================================================================
+FROM python:3.12-slim AS builder
 
-# Set working directory di dalam container
-WORKDIR /app
+WORKDIR /install
 
-# Install pustaka sistem yang dibutuhkan
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Salin file requirements.txt dan install dependensi Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --prefix=/install/packages -r requirements.txt
 
-# Salin seluruh kode aplikasi ke dalam container
-COPY . .
+# =============================================================================
+# Stage 2 — Runtime
+# Image final yang sangat ringan: tanpa torch, tanpa TF, tanpa build tools.
+# =============================================================================
+FROM python:3.12-slim AS runtime
 
-# Expose port 8000 untuk FastAPI
+WORKDIR /app
+
+# Salin hasil instalasi dari builder
+COPY --from=builder /install/packages /usr/local
+
+# Salin kode aplikasi
+COPY app/ ./app/
+
+# Expose port FastAPI
 EXPOSE 8000
 
-# Perintah untuk menjalankan FastAPI via Uvicorn
+# Jalankan FastAPI via Uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
