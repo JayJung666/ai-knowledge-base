@@ -10,7 +10,7 @@ This application allows users to upload custom documents in various formats, aut
 
 * **Optimized Text Chunking**: Powered by `RecursiveCharacterTextSplitter` with tuned chunk sizes and overlaps for accurate context retrieval.
 
-* **Fast Vector Search**: Utilizes **ChromaDB** with `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` via **FastEmbed** (ONNX-based) for efficient local multilingual semantic retrieval.
+* **Fast Vector Search**: Utilizes **ChromaDB** with `sentence-transformers/all-MiniLM-L6-v2` via **FastEmbed** (ONNX-based) for efficient local semantic retrieval.
 
 * **High-Performance Inference**: Integrated with **Groq LLM** (`qwen/qwen3.8-27b`) for ultra-fast generation.
 
@@ -42,7 +42,7 @@ This application allows users to upload custom documents in various formats, aut
 * **Framework**: [FastAPI](https://fastapi.tiangolo.com/)
 * **Orchestration**: [LangChain](https://www.langchain.com/)
 * **LLM**: [Groq API](https://groq.com/) — `qwen/qwen3.8-27b`
-* **Embeddings**: [FastEmbed](https://github.com/qdrant/fastembed) — `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (ONNX-based, 100% lokal & gratis, tanpa PyTorch)
+* **Embeddings**: [FastEmbed](https://github.com/qdrant/fastembed) — `sentence-transformers/all-MiniLM-L6-v2` (ONNX-based, 100% lokal & gratis, tanpa PyTorch)
 * **Vector Database**: [ChromaDB](https://www.trychroma.com/) — deployed as isolated HTTP service
 * **Containerization**: Docker & Docker Compose (multi-stage build)
 

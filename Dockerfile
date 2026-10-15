@@ -25,8 +25,15 @@ WORKDIR /app
 # Salin hasil instalasi dari builder
 COPY --from=builder /install/packages /usr/local
 
+# Set environment variable untuk cache model FastEmbed di dalam image
+ENV FASTEMBED_CACHE_PATH=/app/fastembed_cache
+
 # Salin kode aplikasi
 COPY app/ ./app/
+
+# Pre-download embedding model saat docker build (memanfaatkan build-time RAM)
+# sehingga saat runtime di Render (limit 512MB) TIDAK ada proses download/ekstraksi yang memicu OOM
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2', cache_dir='/app/fastembed_cache')"
 
 # Expose port FastAPI
 EXPOSE 8000

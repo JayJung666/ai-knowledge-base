@@ -35,10 +35,12 @@ if CHROMA_HOST and CHROMA_HOST.lower() not in ("none", "false", "", "local"):
 else:
     chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-# Inisialisasi Embedding Model via FastEmbed (ONNX-based, ringan & gratis)
-# Model paraphrase-multilingual-MiniLM-L12-v2 (~220MB, multilingual 50+ bahasa)
+# Inisialisasi Embedding Model via FastEmbed (ONNX-based, ultra-ringan ~80MB & gratis)
+# Model sentence-transformers/all-MiniLM-L6-v2 hemat memori, ideal untuk limit 512MB RAM di Render Free
+cache_path = os.getenv("FASTEMBED_CACHE_PATH", "./fastembed_cache")
 embeddings = FastEmbedEmbeddings(
-    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    cache_dir=cache_path if os.path.exists(cache_path) else None,
 )
 
 # Inisialisasi LLM dari Groq
