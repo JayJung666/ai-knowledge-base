@@ -31,7 +31,10 @@ CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
 COLLECTION_NAME = "knowledge_base"
 
 if CHROMA_HOST and CHROMA_HOST.lower() not in ("none", "false", "", "local"):
-    chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+    try:
+        chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+    except Exception:
+        chroma_client = chromadb.PersistentClient(path="./chroma_db")
 else:
     chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -58,10 +61,10 @@ def _get_vectorstore() -> Chroma:
         embedding_function=embeddings,
     )
 
-def process_and_store_document(file_path: str) -> int:
+def process_and_store_document(file_path: str, thread_id: str = "default") -> int:
     """
     Membaca file PDF/TXT/DOCX/CSV, memotongnya menjadi chunks,
-    lalu menyimpan vektornya ke ChromaDB service.
+    menambahkan metadata thread_id, lalu menyimpan vektornya ke ChromaDB.
     """
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -82,7 +85,11 @@ def process_and_store_document(file_path: str) -> int:
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
 
-    # Menyimpan ke ChromaDB via HTTP
+    # Kaitkan setiap chunk dengan thread_id agar terisolasi per percakapan
+    for doc in docs:
+        doc.metadata["thread_id"] = thread_id
+
+    # Menyimpan ke ChromaDB
     vectorstore = _get_vectorstore()
     vectorstore.add_documents(docs)
 
@@ -100,39 +107,41 @@ def reset_vector_database() -> bool:
     except Exception as e:
         raise RuntimeError(f"Gagal mengosongkan database: {str(e)}")
 
-def list_documents() -> list[dict]:
+def list_documents(thread_id: str | None = None) -> list[dict]:
     """
-    Mengambil daftar file unik yang telah di-ingest ke ChromaDB beserta jumlah chunks-nya.
-    Mengembalikan list of dict: { source, filename, chunks }
+    Mengambil daftar file unik yang telah di-ingest ke ChromaDB.
+    Jika thread_id diberikan, hanya mengambil dokumen milik thread tersebut.
+    Mengembalikan list of dict: { source, filename, chunks, thread_id }
     """
     try:
         collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
         result = collection.get(include=["metadatas"])
         metadatas = result.get("metadatas", [])
 
-        # Agregasi berdasarkan source
-        doc_map: dict[str, int] = {}
+        doc_map: dict[str, dict] = {}
         for meta in metadatas:
             if meta:
+                doc_thread = meta.get("thread_id", "default")
+                if thread_id is not None and doc_thread != thread_id:
+                    continue
                 src = meta.get("source", "Unknown")
-                doc_map[src] = doc_map.get(src, 0) + 1
+                if src not in doc_map:
+                    doc_map[src] = {
+                        "source": src,
+                        "filename": os.path.basename(src),
+                        "chunks": 0,
+                        "thread_id": doc_thread,
+                    }
+                doc_map[src]["chunks"] += 1
 
-        docs = []
-        for src, chunks in doc_map.items():
-            filename = os.path.basename(src)
-            docs.append({
-                "source": src,
-                "filename": filename,
-                "chunks": chunks
-            })
-        return docs
+        return list(doc_map.values())
     except Exception as e:
         raise RuntimeError(f"Gagal mengambil daftar dokumen: {str(e)}")
 
-def delete_document_by_source(filename: str) -> int:
+def delete_document_by_source(filename: str, thread_id: str | None = None) -> int:
     """
-    Menghapus semua chunks milik dokumen tertentu dari ChromaDB berdasarkan nama file.
-    Mengembalikan jumlah chunks yang dihapus.
+    Menghapus semua chunks milik dokumen tertentu dari ChromaDB berdasarkan nama file
+    dan (opsional) thread_id.
     """
     try:
         collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
@@ -140,13 +149,14 @@ def delete_document_by_source(filename: str) -> int:
         metadatas = result.get("metadatas", [])
         ids = result.get("ids", [])
 
-        # Cari ID yang memiliki source mengandung nama file
         ids_to_delete = []
         for doc_id, meta in zip(ids, metadatas):
             if meta:
                 src = meta.get("source", "")
+                doc_thread = meta.get("thread_id", "default")
                 if os.path.basename(src) == filename:
-                    ids_to_delete.append(doc_id)
+                    if thread_id is None or doc_thread == thread_id:
+                        ids_to_delete.append(doc_id)
 
         if not ids_to_delete:
             raise ValueError(f"Dokumen '{filename}' tidak ditemukan di Knowledge Base.")
@@ -158,14 +168,43 @@ def delete_document_by_source(filename: str) -> int:
     except Exception as e:
         raise RuntimeError(f"Gagal menghapus dokumen '{filename}': {str(e)}")
 
-def query_knowledge_base(question: str) -> dict:
+def delete_thread_documents(thread_id: str) -> int:
     """
-    Mengambil context relevan dari ChromaDB dan mengirimkan ke Groq LLM
-    untuk menghasilkan jawaban beserta sumber dokumen.
+    Menghapus semua chunks dokumen yang terafiliasi dengan thread_id tertentu di ChromaDB.
     """
+    try:
+        collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
+        result = collection.get(where={"thread_id": thread_id})
+        ids = result.get("ids", [])
+        if ids:
+            collection.delete(ids=ids)
+        return len(ids)
+    except Exception as e:
+        raise RuntimeError(f"Gagal menghapus dokumen untuk thread '{thread_id}': {str(e)}")
+
+def query_knowledge_base(question: str, thread_id: str | None = None) -> dict:
+    """
+    Mengambil context relevan dari ChromaDB yang terisolasi berdasarkan thread_id
+    dan mengirimkannya ke Groq LLM untuk menghasilkan jawaban beserta sumber dokumen.
+    """
+    collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
+    filter_dict = {"thread_id": thread_id} if thread_id else None
+
+    # Jika thread_id dispesifikasikan, periksa apakah thread ini memiliki dokumen
+    if filter_dict:
+        existing = collection.get(where=filter_dict, limit=1)
+        if not existing.get("ids"):
+            return {
+                "answer": "Belum ada dokumen yang diunggah untuk thread ini. Silakan unggah dokumen di kolom kanan terlebih dahulu agar saya dapat menjawab berdasarkan isi dokumen tersebut.",
+                "sources": []
+            }
+
     vectorstore = _get_vectorstore()
-    # Mengambil 3 chunk teratas paling relevan
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    search_kwargs = {"k": 3}
+    if filter_dict:
+        search_kwargs["filter"] = filter_dict
+
+    retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)
 
     system_prompt = (
         "Anda adalah asisten AI analitis yang membantu menjawab pertanyaan berdasarkan konteks berikut:\n"

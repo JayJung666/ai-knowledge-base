@@ -1,6 +1,6 @@
 import shutil
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -10,6 +10,7 @@ from app.rag_engine import (
     reset_vector_database,
     list_documents,
     delete_document_by_source,
+    delete_thread_documents,
 )
 from app.tf_classifier import is_valid_query
 
@@ -40,15 +41,20 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class QueryRequest(BaseModel):
     question: str
+    thread_id: str | None = "default"
 
 @app.get("/")
 def read_root():
     return {"status": "online", "message": "AI Knowledge Base API is running!"}
 
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    thread_id: str = Form("default")
+):
     """
-    Endpoint untuk mengunggah file (PDF, TXT, DOCX, CSV) dan menyimpannya ke Knowledge Base (ChromaDB).
+    Endpoint untuk mengunggah file (PDF, TXT, DOCX, CSV) dan menyimpannya ke Knowledge Base (ChromaDB)
+    terisolasi per thread_id.
     """
     allowed_extensions = (".pdf", ".txt", ".docx", ".doc", ".csv")
     if not file.filename.lower().endswith(allowed_extensions):
@@ -62,8 +68,8 @@ async def upload_document(file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Proses dokumen ke ChromaDB
-        num_chunks = process_and_store_document(file_path)
+        # Proses dokumen ke ChromaDB dengan thread_id
+        num_chunks = process_and_store_document(file_path, thread_id=thread_id)
 
         # Hapus file temporary setelah berhasil diproses
         os.remove(file_path)
@@ -71,8 +77,9 @@ async def upload_document(file: UploadFile = File(...)):
         return {
             "status": "success",
             "filename": file.filename,
+            "thread_id": thread_id,
             "processed_chunks": num_chunks,
-            "message": "Dokumen berhasil disimpan ke Knowledge Base."
+            "message": f"Dokumen berhasil disimpan ke Knowledge Base untuk thread '{thread_id}'."
         }
     except Exception as e:
         if os.path.exists(file_path):
@@ -80,15 +87,16 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Gagal memproses dokumen: {str(e)}")
 
 @app.get("/documents")
-def get_documents():
+def get_documents(thread_id: str | None = Query(None)):
     """
-    Endpoint untuk mengambil daftar dokumen yang telah di-ingest ke ChromaDB
-    beserta jumlah chunks dan metadata-nya.
+    Endpoint untuk mengambil daftar dokumen yang telah di-ingest ke ChromaDB.
+    Jika thread_id disertakan, hanya mengambil dokumen untuk thread tersebut.
     """
     try:
-        docs = list_documents()
+        docs = list_documents(thread_id=thread_id)
         return {
             "status": "success",
+            "thread_id": thread_id,
             "documents": docs,
             "total": len(docs)
         }
@@ -96,21 +104,38 @@ def get_documents():
         raise HTTPException(status_code=500, detail=f"Gagal mengambil daftar dokumen: {str(e)}")
 
 @app.delete("/documents/{filename}", status_code=status.HTTP_200_OK)
-def delete_document(filename: str):
+def delete_document(filename: str, thread_id: str | None = Query(None)):
     """
     Endpoint untuk menghapus semua chunks dari dokumen tertentu di ChromaDB
-    berdasarkan nama file.
+    berdasarkan nama file dan thread_id.
     """
     try:
-        deleted_count = delete_document_by_source(filename)
+        deleted_count = delete_document_by_source(filename, thread_id=thread_id)
         return {
             "status": "success",
             "filename": filename,
+            "thread_id": thread_id,
             "deleted_chunks": deleted_count,
             "message": f"Dokumen '{filename}' berhasil dihapus dari Knowledge Base ({deleted_count} chunks)."
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/threads/{thread_id}/documents", status_code=status.HTTP_200_OK)
+def delete_thread_docs(thread_id: str):
+    """
+    Endpoint untuk membersihkan semua dokumen milik sebuah thread saat thread dihapus.
+    """
+    try:
+        deleted_count = delete_thread_documents(thread_id)
+        return {
+            "status": "success",
+            "thread_id": thread_id,
+            "deleted_chunks": deleted_count,
+            "message": f"Semua dokumen untuk thread '{thread_id}' berhasil dibersihkan ({deleted_count} chunks)."
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -131,15 +156,16 @@ def reset_knowledge_base():
 @app.post("/query")
 def ask_question(request: QueryRequest):
     """
-    Endpoint untuk mengajukan pertanyaan dan mengembalikan jawaban beserta dokumen sumbernya.
+    Endpoint untuk mengajukan pertanyaan terisolasi per thread dan mengembalikan jawaban beserta sumbernya.
     """
     if not is_valid_query(request.question):
         raise HTTPException(status_code=400, detail="Pertanyaan tidak valid atau terlalu pendek.")
 
     try:
-        result = query_knowledge_base(request.question)
+        result = query_knowledge_base(request.question, thread_id=request.thread_id)
         return {
             "question": request.question,
+            "thread_id": request.thread_id,
             "answer": result["answer"],
             "sources": result["sources"]
         }

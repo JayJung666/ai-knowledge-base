@@ -1,5 +1,8 @@
 # 📚 RAG-Based AI Knowledge Base Application
 
+[![CI Pipeline](https://github.com/JayJung666/ai-knowledge-base/actions/workflows/ci.yml/badge.svg)](https://github.com/JayJung666/ai-knowledge-base/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/JayJung666/ai-knowledge-base/releases)
+
 A production-ready Retrieval-Augmented Generation (RAG) Knowledge Base system built using **FastAPI**, **LangChain**, **ChromaDB**, and **Groq LLM**, fully containerized with **Docker Compose**.
 
 This application allows users to upload custom documents in various formats, automatically chunk and embed their content into a vector database, and query the knowledge base using LLMs with full source attribution and transparency.
@@ -23,6 +26,12 @@ This application allows users to upload custom documents in various formats, aut
 * **High-Performance Inference**: Integrated with **Groq LLM** (`qwen/qwen3.8-27b`) for ultra-fast generation.
 
 * **Source Attribution**: Returns direct citation sources (file name, page number, and chunk preview) alongside every answer.
+
+* **Per-Conversation Document Isolation**: Every conversation ("Obrolan") has its own isolated namespace in ChromaDB. Documents uploaded in one conversation are completely invisible to other conversations — similar to Projects in NotebookLM.
+
+* **3-Column Unified UI**: Single-screen layout with a left sidebar (conversation history), center chat area, and right panel (upload + document list). No tab switching required.
+
+* **Conversation Management**: Create, rename, delete, and search conversations. Each conversation title is auto-generated from the first message sent.
 
 * **Knowledge Base Reset**: Dedicated `/reset-knowledge-base` endpoint to clear persistent storage securely.
 
@@ -74,11 +83,11 @@ Image sebelumnya monolitik (~2.5–3 GB). Setelah refaktor:
 ```
 ai-knowledge-base/
 ├── app/
-│   ├── main.py            # FastAPI routes & endpoints (CORS via env var)
-│   ├── rag_engine.py      # Core RAG pipeline (ChromaDB HTTP client)
+│   ├── main.py            # FastAPI routes & endpoints (CORS via env var, thread_id support)
+│   ├── rag_engine.py      # Core RAG pipeline (ChromaDB HTTP client, per-thread namespace)
 │   └── tf_classifier.py   # Query validator (pure Python, tanpa TensorFlow)
-├── frontend/              # React + Vite + TailwindCSS
-│   ├── src/App.tsx        # UI utama (API URL dari VITE_API_URL)
+├── frontend/              # React + Vite + Vanilla CSS
+│   ├── src/App.tsx        # UI utama — 3-column single screen layout
 │   ├── vercel.json        # Config SPA routing untuk Vercel
 │   └── .env.example       # Template env frontend
 ├── Dockerfile             # Multi-stage Docker build (backend only)
@@ -185,11 +194,11 @@ Push ke branch `main` — Vercel akan otomatis build dan deploy.
 
 ### Available Endpoints
 
-#### 1. `POST /upload` — Upload Document
+#### 1. `POST /upload` — Upload Document (Isolated per Conversation)
 
-Uploads a document (`.pdf`, `.docx`, `.txt`, or `.csv`) to be processed, chunked, and stored in ChromaDB.
+Uploads a document to be processed, chunked, and stored in ChromaDB under the conversation's namespace.
 
-* **Request**: `multipart/form-data` with key `file`
+* **Request**: `multipart/form-data` with keys `file` and `thread_id`
 
 * **Response Example**:
   ```json
@@ -201,14 +210,15 @@ Uploads a document (`.pdf`, `.docx`, `.txt`, or `.csv`) to be processed, chunked
   }
   ```
 
-#### 2. `POST /query` — Query Knowledge Base
+#### 2. `POST /query` — Query Knowledge Base (Isolated per Conversation)
 
-Submits a question and returns an AI-generated answer with source citations.
+Submits a question and returns an AI-generated answer with source citations, scoped to the given conversation's documents.
 
 * **Request Body**:
   ```json
   {
-    "question": "What are the requirements listed in the document?"
+    "question": "What are the requirements listed in the document?",
+    "thread_id": "thread-1234567890"
   }
   ```
 
@@ -227,9 +237,23 @@ Submits a question and returns an AI-generated answer with source citations.
   }
   ```
 
-#### 3. `DELETE /reset-knowledge-base` — Reset Knowledge Base
+#### 3. `GET /documents` — List Documents for a Conversation
 
-Clears all vector data from ChromaDB.
+Returns the list of documents stored in a specific conversation's namespace.
+
+* **Query Param**: `?thread_id=thread-1234567890`
+
+#### 4. `DELETE /documents/{filename}` — Delete a Document from a Conversation
+
+* **Query Param**: `?thread_id=thread-1234567890`
+
+#### 5. `DELETE /threads/{thread_id}/documents` — Delete All Documents for a Conversation
+
+Clears all documents belonging to a specific conversation namespace from ChromaDB.
+
+#### 6. `DELETE /reset-knowledge-base` — Reset Entire Knowledge Base
+
+Clears **all** vector data from ChromaDB (all conversations).
 
 * **Response Example**:
   ```json
@@ -291,6 +315,39 @@ docker-compose up -d api
 * **Environment Variables:**
   * `GROQ_API_KEY`: API Key Groq
   * `CORS_ORIGINS`: `*`
+
+---
+
+## 🔄 CI/CD Pipeline (GitHub Actions)
+
+Proyek ini telah dilengkapi dengan pipeline otomatis **Continuous Integration & Continuous Deployment**:
+
+```
+[ Git Push / PR ] 
+       │
+       ▼
+┌────────────────────────────────────────────────────────┐
+│             GitHub Actions CI Pipeline                 │
+├───────────────────────────┬────────────────────────────┤
+│   Backend CI (Python)     │   Frontend CI (Node.js)    │
+│   • Python 3.12 Setup     │   • Node 20 Setup          │
+│   • pip dependencies      │   • npm dependencies       │
+│   • Pytest Unit Tests     │   • oxlint Linting         │
+│   • API Health Check      │   • TypeScript & Vite      │
+│   • Query Validation Test │     Production Build       │
+└─────────────┬─────────────┴─────────────┬──────────────┘
+              │ (All Tests Pass)          │
+              ▼                           ▼
+       [ Render.com CD ]          [ Vercel Edge CD ]
+   Docker Build & Auto-Deploy    Production Static Deploy
+```
+
+1. **Continuous Integration (CI):**
+   * Dijalankan otomatis di setiap `push` dan `pull_request` ke branch `main`.
+   * Memvalidasi kode backend (tes endpoint, validasi query, upload format) dan frontend (linting & validasi tipe TypeScript).
+2. **Continuous Deployment (CD):**
+   * **Vercel** langsung merilis versi frontend terbaru setelah push.
+   * **Render** otomatis mem-build image Docker dan me-restart container backend.
 
 ---
 

@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 samples/
+chroma_db/
+fastembed_cache/
+.pytest_cache/
