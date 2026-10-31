@@ -1,6 +1,7 @@
 import os
 import shutil
 import stat
+import gc
 from dotenv import load_dotenv
 from langchain_community.document_loaders import (
     PyPDFLoader,
@@ -89,11 +90,21 @@ def process_and_store_document(file_path: str, thread_id: str = "default") -> in
     for doc in docs:
         doc.metadata["thread_id"] = thread_id
 
-    # Menyimpan ke ChromaDB
-    vectorstore = _get_vectorstore()
-    vectorstore.add_documents(docs)
+    num_chunks = len(docs)
 
-    return len(docs)
+    # Menyimpan ke ChromaDB secara bertahap (mini-batches) untuk mencegah lonjakan RAM di Render Free (512MB)
+    vectorstore = _get_vectorstore()
+    batch_size = 20
+    for i in range(0, num_chunks, batch_size):
+        batch = docs[i : i + batch_size]
+        vectorstore.add_documents(batch)
+        gc.collect()
+
+    del documents
+    del docs
+    gc.collect()
+
+    return num_chunks
 
 def reset_vector_database() -> bool:
     """
@@ -103,6 +114,7 @@ def reset_vector_database() -> bool:
         chroma_client.delete_collection(COLLECTION_NAME)
         # Buat ulang koleksi kosong agar siap digunakan kembali
         chroma_client.get_or_create_collection(COLLECTION_NAME)
+        gc.collect()
         return True
     except Exception as e:
         raise RuntimeError(f"Gagal mengosongkan database: {str(e)}")
@@ -162,6 +174,7 @@ def delete_document_by_source(filename: str, thread_id: str | None = None) -> in
             raise ValueError(f"Dokumen '{filename}' tidak ditemukan di Knowledge Base.")
 
         collection.delete(ids=ids_to_delete)
+        gc.collect()
         return len(ids_to_delete)
     except ValueError:
         raise
@@ -178,6 +191,7 @@ def delete_thread_documents(thread_id: str) -> int:
         ids = result.get("ids", [])
         if ids:
             collection.delete(ids=ids)
+            gc.collect()
         return len(ids)
     except Exception as e:
         raise RuntimeError(f"Gagal menghapus dokumen untuk thread '{thread_id}': {str(e)}")

@@ -39,6 +39,11 @@ app.add_middleware(
 UPLOAD_DIR = "./temp_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Batasan resource untuk memastikan keandalan di lingkungan Render Free Tier (512 MB RAM)
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "5"))
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_DOCS_PER_THREAD = int(os.getenv("MAX_DOCS_PER_THREAD", "10"))
+
 class QueryRequest(BaseModel):
     question: str
     thread_id: str | None = "default"
@@ -54,7 +59,7 @@ async def upload_document(
 ):
     """
     Endpoint untuk mengunggah file (PDF, TXT, DOCX, CSV) dan menyimpannya ke Knowledge Base (ChromaDB)
-    terisolasi per thread_id.
+    terisolasi per thread_id dengan proteksi batas ukuran file dan kuota dokumen.
     """
     allowed_extensions = (".pdf", ".txt", ".docx", ".doc", ".csv")
     if not file.filename.lower().endswith(allowed_extensions):
@@ -63,16 +68,39 @@ async def upload_document(
             detail="Hanya file dengan format PDF, TXT, DOCX, atau CSV yang didukung."
         )
 
+    # Validasi kuota dokumen per thread
+    current_docs = list_documents(thread_id=thread_id)
+    existing_filenames = [d.get("filename") for d in current_docs]
+    if file.filename not in existing_filenames and len(current_docs) >= MAX_DOCS_PER_THREAD:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Batas dokumen tercapai ({MAX_DOCS_PER_THREAD} dokumen untuk obrolan '{thread_id}'). Silakan hapus dokumen lama sebelum mengunggah yang baru."
+        )
+
     file_path = os.path.join(UPLOAD_DIR, file.filename)
+    chunk_size = 1024 * 1024  # 1 MB chunk buffer
+    total_bytes = 0
+
     try:
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := await file.read(chunk_size):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_FILE_SIZE_BYTES:
+                    buffer.close()
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=f"Ukuran file '{file.filename}' melebihi batas maksimal ({MAX_FILE_SIZE_MB} MB). Silakan unggah dokumen yang lebih kecil."
+                    )
+                buffer.write(chunk)
 
         # Proses dokumen ke ChromaDB dengan thread_id
         num_chunks = process_and_store_document(file_path, thread_id=thread_id)
 
         # Hapus file temporary setelah berhasil diproses
-        os.remove(file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
         return {
             "status": "success",
@@ -81,6 +109,8 @@ async def upload_document(
             "processed_chunks": num_chunks,
             "message": f"Dokumen berhasil disimpan ke Knowledge Base untuk thread '{thread_id}'."
         }
+    except HTTPException:
+        raise
     except Exception as e:
         if os.path.exists(file_path):
             os.remove(file_path)

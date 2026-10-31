@@ -19,6 +19,15 @@ def test_upload_unsupported_file_extension():
     assert response.status_code == 400
     assert "Hanya file dengan format PDF, TXT, DOCX, atau CSV" in response.json().get("detail", "")
 
+def test_upload_file_size_exceeded():
+    large_content = b"a" * (5 * 1024 * 1024 + 1024)  # 5 MB + 1 KB
+    response = client.post(
+        "/upload",
+        files={"file": ("large_document.txt", large_content, "text/plain")}
+    )
+    assert response.status_code == 413
+    assert "melebihi batas maksimal" in response.json().get("detail", "")
+
 def test_query_invalid_question():
     response = client.post(
         "/query",

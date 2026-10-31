@@ -61,6 +61,12 @@ function formatBytes(b: number) {
   return `${+(b / Math.pow(k, i)).toFixed(2)} ${s[i]}`;
 }
 
+// Batasan resource untuk memastikan stabilitas di Render Free Tier (512 MB RAM)
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB per file
+const MAX_QUEUE_ITEMS = 5; // Maks 5 file per batch upload
+const MAX_DOCS_PER_THREAD = 10; // Maks 10 dokumen per thread
+const MAX_QUEUE_TOTAL_BYTES = 15 * 1024 * 1024; // 15 MB akumulasi antrean
+
 const DEFAULT_WELCOME_MSG: ChatMessage = {
   id: 'welcome-msg',
   sender: 'ai',
@@ -401,19 +407,54 @@ export default function App() {
     }
   };
 
-  // File queue management
+  // File queue management dengan proteksi resource (Free Tier 512MB RAM)
   const addFilesToQueue = (files: FileList | File[]) => {
     const ok = ['.pdf', '.txt', '.docx', '.doc', '.csv'];
     const items: UploadQueueItem[] = [];
-    Array.from(files).forEach(f => {
+    const currentQueueCount = uploadQueue.length;
+    let currentQueueBytes = uploadQueue.reduce((acc, q) => acc + q.file.size, 0);
+
+    const activeDocsCount = kbDocs.length;
+    if (activeDocsCount >= MAX_DOCS_PER_THREAD) {
+      addLog(`Batas maksimal (${MAX_DOCS_PER_THREAD} dokumen) untuk obrolan ini telah tercapai. Hapus dokumen lama terlebih dahulu.`, 'warn');
+      return;
+    }
+
+    const fileList = Array.from(files);
+    for (const f of fileList) {
       const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-      if (ok.includes(ext)) {
-        items.push({ file: f, status: 'pending', progress: 0 });
-      } else {
-        addLog(`'${f.name}' ditolak - ekstensi tidak didukung.`, 'warn');
+      if (!ok.includes(ext)) {
+        addLog(`'${f.name}' ditolak - format tidak didukung (gunakan PDF, TXT, DOCX, CSV).`, 'warn');
+        continue;
       }
-    });
-    setUploadQueue(p => [...p, ...items]);
+
+      if (f.size > MAX_FILE_SIZE_BYTES) {
+        addLog(`'${f.name}' ditolak - ukuran (${formatBytes(f.size)}) melebihi batas maksimal 5 MB.`, 'error');
+        continue;
+      }
+
+      if (currentQueueCount + items.length >= MAX_QUEUE_ITEMS) {
+        addLog(`Antrean penuh: maksimal ${MAX_QUEUE_ITEMS} file per batch upload. Sisa file diabaikan.`, 'warn');
+        break;
+      }
+
+      if (currentQueueBytes + f.size > MAX_QUEUE_TOTAL_BYTES) {
+        addLog(`Total ukuran antrean melebihi batas 15 MB. '${f.name}' diabaikan.`, 'warn');
+        break;
+      }
+
+      if (activeDocsCount + items.length >= MAX_DOCS_PER_THREAD) {
+        addLog(`Maksimal ${MAX_DOCS_PER_THREAD} dokumen per obrolan. Dokumen '${f.name}' diabaikan.`, 'warn');
+        break;
+      }
+
+      items.push({ file: f, status: 'pending', progress: 0 });
+      currentQueueBytes += f.size;
+    }
+
+    if (items.length > 0) {
+      setUploadQueue(p => [...p, ...items]);
+    }
   };
 
   const uploadSingleFile = useCallback(async (item: UploadQueueItem, idx: number) => {
@@ -1039,6 +1080,10 @@ export default function App() {
                 </p>
                 <div className="flex items-center space-x-1.5 text-[10px] text-indigo-400 font-mono">
                   <span>PDF</span>•<span>DOCX</span>•<span>CSV</span>•<span>TXT</span>
+                </div>
+                <div className={`mt-2 text-[10px] ${mut} flex flex-col items-center gap-0.5 leading-tight`}>
+                  <span>Maks. <strong>5 MB</strong> / file • Maks. <strong>5 file</strong> / antrean</span>
+                  <span>Maks. <strong>10 dokumen</strong> per obrolan ({kbDocs.length}/10)</span>
                 </div>
                 <input
                   ref={fileInputRef}
