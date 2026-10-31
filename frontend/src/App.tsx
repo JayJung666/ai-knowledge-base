@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify';
 import {
   Database, Upload, MessageSquare, Settings, Trash2, FileText,
   CheckCircle, Layers, ChevronDown, ChevronRight,
-  Send, Sparkles, Terminal, Activity, HardDrive, Moon, Sun, X, File,
+  Send, Sparkles, HardDrive, Moon, Sun, X, File,
   Server, Zap, Check, Link2, RefreshCw, FilePlus2, Loader2,
   Plus, Search, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight,
   Copy, RotateCcw, FolderLock, Pencil,
@@ -52,12 +52,6 @@ interface UploadQueueItem {
   error?: string;
 }
 
-interface LogEntry {
-  id: number;
-  type: 'info' | 'success' | 'error' | 'warn';
-  time: string;
-  msg: string;
-}
 
 function formatBytes(b: number) {
   if (!b) return '0 B';
@@ -84,7 +78,10 @@ export default function App() {
   const [kbDocs, setKbDocs] = useState<KBDocument[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
   const [docSearchQuery, setDocSearchQuery] = useState('');
-  const [rightPanelTab, setRightPanelTab] = useState<'files' | 'logs'>('files');
+
+  // Resizable right sidebar
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
+  const isResizing = useRef(false);
 
   // Sidebar visibility toggles
   const [showLeftSidebar, setShowLeftSidebar] = useState(true);
@@ -130,14 +127,9 @@ export default function App() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
 
-  // System Logs
-  const [logs, setLogs] = useState<LogEntry[]>([
-    { id: 1, type: 'info', time: new Date().toLocaleTimeString(), msg: 'Dashboard terisolasi per-obrolan berhasil dimuat.' },
-  ]);
-
-  const addLog = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
-    setLogs(p => [{ id: Date.now(), type, time: new Date().toLocaleTimeString(), msg }, ...p]);
-  }, []);
+  // addLog is kept as a no-op (log panel removed from UI)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const addLog = useCallback((_msg: string, _type?: string) => {}, []);
 
   const handleStartRename = (thread: Thread, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -949,43 +941,51 @@ export default function App() {
         </main>
 
         {/* ======================================================== */}
-        {/* KOLOM 3: UPLOAD & DAFTAR FILE (RIGHT COLUMN)             */}
+        {/* KOLOM 3: UPLOAD & DAFTAR FILE (RIGHT COLUMN — RESIZABLE) */}
         {/* ======================================================== */}
+        {showRightSidebar && (
+          /* Drag-resize handle on the LEFT edge of the right sidebar */
+          <div
+            className={`w-1 shrink-0 cursor-col-resize select-none group relative z-10 ${
+              D ? 'hover:bg-indigo-500/50' : 'hover:bg-indigo-400/40'
+            } transition-colors`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isResizing.current = true;
+              const startX = e.clientX;
+              const startW = rightSidebarWidth;
+              const onMove = (ev: MouseEvent) => {
+                if (!isResizing.current) return;
+                const delta = startX - ev.clientX;
+                const next = Math.min(520, Math.max(240, startW + delta));
+                setRightSidebarWidth(next);
+              };
+              const onUp = () => {
+                isResizing.current = false;
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+              };
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            }}
+          >
+            <div className={`absolute inset-y-0 left-0 w-0.5 ${
+              D ? 'bg-slate-800 group-hover:bg-indigo-500' : 'bg-slate-200 group-hover:bg-indigo-400'
+            } transition-colors`} />
+          </div>
+        )}
         <aside
-          className={`${showRightSidebar ? 'w-80 md:w-84 lg:w-92 xl:w-96' : 'w-0 overflow-hidden border-none'} border-l transition-all duration-200 shrink-0 flex flex-col h-full ${D ? 'bg-slate-900/60 border-slate-800/80' : 'bg-slate-100/60 border-slate-200'}`}
+          style={showRightSidebar ? { width: `${rightSidebarWidth}px` } : undefined}
+          className={`${
+            showRightSidebar ? 'border-l' : 'w-0 overflow-hidden border-none'
+          } transition-[border] duration-200 shrink-0 flex flex-col h-full ${D ? 'bg-slate-900/60 border-slate-800/80' : 'bg-slate-100/60 border-slate-200'}`}
         >
-          {/* Right Header with Tabs: Files / System Logs */}
-          <div className={`p-2.5 border-b flex items-center justify-between shrink-0 ${D ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white'}`}>
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setRightPanelTab('files')}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  rightPanelTab === 'files'
-                    ? D
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-indigo-50 text-indigo-700 shadow-sm'
-                    : `${mut} hover:text-slate-200`
-                }`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Dokumen ({kbDocs.length})</span>
-              </button>
-
-              <button
-                onClick={() => setRightPanelTab('logs')}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  rightPanelTab === 'logs'
-                    ? D
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-indigo-50 text-indigo-700 shadow-sm'
-                    : `${mut} hover:text-slate-200`
-                }`}
-              >
-                <Activity className="w-3.5 h-3.5" />
-                <span>Log ({logs.length})</span>
-              </button>
+          {/* Right Panel Header */}
+          <div className={`px-3 py-2 border-b flex items-center justify-between shrink-0 ${D ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white'}`}>
+            <div className="flex items-center space-x-2 text-xs font-semibold">
+              <FileText className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Dokumen ({kbDocs.length})</span>
             </div>
-
             <button
               onClick={() => fetchDocuments(activeThreadId)}
               disabled={statsLoading}
@@ -1006,7 +1006,7 @@ export default function App() {
           </div>
 
           {/* Right Panel Content */}
-          {rightPanelTab === 'files' ? (
+          {
             <div className="flex-1 overflow-y-auto p-3 space-y-3.5">
 
               {/* 1. UPLOAD FILE DROPZONE */}
@@ -1235,42 +1235,7 @@ export default function App() {
               </div>
 
             </div>
-          ) : (
-            /* Tab: System Logs */
-            <div className="flex-1 flex flex-col p-3 overflow-hidden text-xs font-mono">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800 mb-2">
-                <span className="font-bold flex items-center space-x-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>API Event Log</span>
-                </span>
-                <button
-                  onClick={() => setLogs([])}
-                  className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-                >
-                  Clear
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
-                {logs.map(log => (
-                  <div key={log.id} className="text-[11px] leading-relaxed break-all">
-                    <span className="text-slate-500 select-none mr-1.5">[{log.time}]</span>
-                    <span className={`px-1 rounded text-[9px] uppercase font-bold mr-1.5 ${
-                      log.type === 'success'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : log.type === 'error'
-                          ? 'bg-red-500/20 text-red-400'
-                          : log.type === 'warn'
-                            ? 'bg-amber-500/20 text-amber-400'
-                            : 'bg-sky-500/20 text-sky-400'
-                    }`}>
-                      {log.type}
-                    </span>
-                    <span>{log.msg}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          }
 
           {/* Right Sidebar Footer */}
           <div className={`p-2.5 border-t text-[11px] flex items-center justify-between ${D ? 'border-slate-800 bg-slate-950/40 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
