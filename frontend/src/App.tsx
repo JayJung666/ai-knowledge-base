@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import {
   Database, Upload, MessageSquare, Settings, Trash2, FileText,
-  CheckCircle, Layers, ChevronDown, ChevronRight,
+  CheckCircle, ChevronDown, ChevronRight,
   Send, Sparkles, HardDrive, Moon, Sun, X, File,
   Server, Zap, Check, Link2, RefreshCw, FilePlus2, Loader2,
   Plus, Search, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight,
@@ -580,17 +580,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Stats Pill in Header */}
-        <div className="hidden md:flex items-center space-x-3 text-xs">
-          <div className={`px-3 py-1 rounded-full border flex items-center space-x-2 ${D ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
-            <FileText className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Obrolan ini: <strong>{kbDocs.length}</strong> Dokumen</span>
-            <span className="text-slate-600">•</span>
-            <Layers className="w-3.5 h-3.5 text-violet-400" />
-            <span><strong>{totalChunks}</strong> Chunks</span>
-          </div>
-        </div>
-
         {/* Header Right Actions */}
         <div className="flex items-center space-x-2">
           {/* Connection status badge */}
@@ -858,9 +847,6 @@ export default function App() {
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${D ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
                 {activeThread?.messages.length || 0} pesan
               </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono hidden sm:inline">
-                {kbDocs.length} file terisolasi
-              </span>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -975,7 +961,7 @@ export default function App() {
               </button>
             </form>
             <div className={`mt-1.5 px-1 text-[11px] ${mut} flex items-center justify-between`}>
-              <span>Tekan <strong>Enter</strong> untuk mengirim pertanyaan</span>
+              <span></span>
               <span>Konteks: <strong>{kbDocs.length} Dokumen</strong> terisolasi pada obrolan ini</span>
             </div>
           </div>
@@ -1043,7 +1029,6 @@ export default function App() {
               <FolderLock className="w-3 h-3 shrink-0" />
               <span className="truncate">Obrolan: <strong>{activeThread?.title || 'Aktif'}</strong></span>
             </span>
-            <span className="text-[10px] opacity-75 font-mono">Terisolasi</span>
           </div>
 
           {/* Right Panel Content */}
@@ -1288,7 +1273,6 @@ export default function App() {
               <CheckCircle className="w-3 h-3 text-emerald-400" />
               <span>ChromaDB Namespace</span>
             </span>
-            <span className="font-mono text-[10px] text-indigo-400 truncate max-w-[120px]">{activeThread?.id}</span>
           </div>
         </aside>
 
